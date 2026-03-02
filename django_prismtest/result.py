@@ -99,7 +99,7 @@ class PrismTestResult(unittest.TextTestResult):
         # Clean up any leftover spinner from a previous test
         self._stop_live()
         test_name = self.getDescription(test)
-        if self.showAll or self.dots:
+        if self.showAll:
             timer = threading.Timer(
                 _SPINNER_DELAY, self._start_spinner, args=(test_name,)
             )
@@ -117,6 +117,8 @@ class PrismTestResult(unittest.TextTestResult):
     def stopTestRun(self) -> None:
         super().stopTestRun()
         total_elapsed = time.time() - self._run_start_time
+        if self.dots:
+            self.console.print()
         self.console.print("[separator]" + "─" * 60 + "[/separator]")
 
         # Print failures and errors
@@ -152,7 +154,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [pass]✔[/pass] {escape(test_name)} [timing]({elapsed:.3f}s)[/timing]"
+                f"[pass]✔[/pass] {escape(test_name)} [timing]({elapsed:.3f}s)[/timing]"
             )
         elif self.dots:
             self.console.print("[pass].[/pass]", end="")
@@ -164,7 +166,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [error]✘[/error] {escape(test_name)}  [error]ERROR[/error]"
+                f"[error]✘[/error] {escape(test_name)}  [error]ERROR[/error]"
             )
         elif self.dots:
             self.console.print("[error]E[/error]", end="")
@@ -176,7 +178,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [fail]✘[/fail] {escape(test_name)}  [fail]FAIL[/fail]"
+                f"[fail]✘[/fail] {escape(test_name)}  [fail]FAIL[/fail]"
             )
         elif self.dots:
             self.console.print("[fail]F[/fail]", end="")
@@ -188,7 +190,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [skip]⊘[/skip] {escape(test_name)}  [skip]SKIP: {escape(reason)}[/skip]"
+                f"[skip]⊘[/skip] {escape(test_name)}  [skip]SKIP: {escape(reason)}[/skip]"
             )
         elif self.dots:
             self.console.print("[skip]s[/skip]", end="")
@@ -200,7 +202,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [expected_fail]✔[/expected_fail] {escape(test_name)}"
+                f"[expected_fail]✔[/expected_fail] {escape(test_name)}"
                 " [timing]expected failure[/timing]"
             )
         elif self.dots:
@@ -213,7 +215,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             self.console.print(
-                f"  [unexpected_success]⚠[/unexpected_success] {escape(test_name)}"
+                f"[unexpected_success]⚠[/unexpected_success] {escape(test_name)}"
                 " [unexpected_success]unexpected success[/unexpected_success]"
             )
         elif self.dots:
