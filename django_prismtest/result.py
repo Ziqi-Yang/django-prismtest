@@ -199,9 +199,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             formatted = self._format_test_name(test)
-            self.console.print(
-                f"[error]✘[/error] {formatted}  [error]ERROR[/error]"
-            )
+            self.console.print(f"[error]✘[/error] {formatted}  [error]ERROR[/error]")
         elif self.dots:
             self.console.print("[error]E[/error]", end="")
 
@@ -211,9 +209,7 @@ class PrismTestResult(unittest.TextTestResult):
 
         if self.showAll:
             formatted = self._format_test_name(test)
-            self.console.print(
-                f"[fail]✘[/fail] {formatted}  [fail]FAIL[/fail]"
-            )
+            self.console.print(f"[fail]✘[/fail] {formatted}  [fail]FAIL[/fail]")
         elif self.dots:
             self.console.print("[fail]F[/fail]", end="")
 

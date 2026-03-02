@@ -118,6 +118,7 @@ def format_traceback(err_text: str, highlight_path: str | None = None) -> Text:
 # Summary panel
 # ---------------------------------------------------------------------------
 
+
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
@@ -138,7 +139,9 @@ def render_summary(
     skipped = len(result.skipped)
     expected_failures = len(result.expectedFailures)
     unexpected_successes = len(result.unexpectedSuccesses)
-    passed = total - failures - errors - skipped - expected_failures - unexpected_successes
+    passed = (
+        total - failures - errors - skipped - expected_failures - unexpected_successes
+    )
     success = result.wasSuccessful()
 
     # ---- Header ----
@@ -206,6 +209,7 @@ def render_summary(
 # ---------------------------------------------------------------------------
 # Error / failure detail blocks
 # ---------------------------------------------------------------------------
+
 
 def render_error_list(
     flavour: str,

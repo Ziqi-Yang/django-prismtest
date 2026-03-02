@@ -4,19 +4,25 @@ version = "0.1.0"
 description = "A modern, colorful Django test runner with real-time spinners, syntax-highlighted output, and beautifully formatted test results."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 keywords = ["django", "testing", "test-runner", "colorful", "tui"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
     "Framework :: Django :: 6.0",
     "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "django>=6.0.2",
-    "rich>=14.0.0",
+    "django>=4.2",
+    "rich>=13.0",
 ]
 
 [project.urls]

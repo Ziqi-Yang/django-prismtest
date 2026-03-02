@@ -8,14 +8,15 @@ A modern, colorful Django test runner with real-time spinners, syntax-highlighte
 - Colored pass/fail/error/skip indicators with Unicode icons
 - Per-test timing and "slowest tests" report
 - Rich-formatted summary panel with pass/fail counts
-- Syntax-highlighted tracebacks with project code emphasis
+- Syntax-highlighted tracebacks with project-code emphasis
 - Drop-in replacement for Django's `DiscoverRunner`
+- Respects Django's `--debug-sql` and `--pdb` flags
 
 ## Requirements
 
-- Python 3.13+
-- Django 6.0+
-- Rich 14.0+
+- Python 3.10+
+- Django 4.2+
+- Rich 13.0+
 
 ## Installation
 
@@ -29,7 +30,7 @@ Or with uv:
 uv add django-prismtest
 ```
 
-## Usage
+## Quick start
 
 Add to your Django settings:
 
@@ -45,6 +46,16 @@ python manage.py test
 
 ## Configuration
 
+### Verbosity levels
+
+django-prismtest follows Django's built-in `--verbosity` flag:
+
+| Level | Flag | Behavior |
+|-------|------|----------|
+| 2 (default) | `-v 2` | Per-test results with spinner, icons, and timing |
+| 1 | `-v 1` | Dot-style progress (`....FE..s`) |
+| 0 | `-v 0` | Summary only |
+
 ### `PRISMTEST_HIGHLIGHT_PATH`
 
 Set this in your Django settings to highlight your project's code in tracebacks:
@@ -55,14 +66,6 @@ PRISMTEST_HIGHLIGHT_PATH = "/path/to/your/project/"
 
 Lines from this path will appear in bold yellow, making it easy to spot your code in stack traces.
 
-## Demo
-
-Run the demo to preview the output formatting:
-
-```bash
-uv run python main.py
-```
-
 ## Development
 
 ```bash
@@ -72,6 +75,10 @@ uv sync --group dev
 # Run tests
 uv run python -m pytest tests/
 
-# Run the demo
+# Run the visual demo
 uv run python main.py
 ```
+
+## License
+
+MIT
