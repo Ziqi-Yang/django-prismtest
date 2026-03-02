@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
@@ -54,6 +55,39 @@ class PrismTestResult(unittest.TextTestResult):
             self.highlight_path = getattr(settings, "PRISMTEST_HIGHLIGHT_PATH", None)
         except Exception:
             pass
+
+    def _format_test_name(self, test: unittest.TestCase, dim_all: bool = False) -> str:
+        """Return Rich-markup formatted test name with differentiated parts.
+
+        When *dim_all* is True the entire string is rendered dim (used for
+        skipped tests).  Otherwise the method name, path, and description
+        each receive a distinct style.
+        """
+        test_str = str(test)
+        match = re.match(r"^(\S+)\s+\((.+)\)$", test_str)
+
+        if match:
+            method = escape(match.group(1))
+            path = escape(match.group(2))
+            if dim_all:
+                parts = f"[dim]{method} ({path})[/dim]"
+            else:
+                parts = f"[test_name]{method}[/test_name] [dim]({path})[/dim]"
+        else:
+            if dim_all:
+                parts = f"[dim]{escape(test_str)}[/dim]"
+            else:
+                parts = f"[test_name]{escape(test_str)}[/test_name]"
+
+        doc_first_line = test.shortDescription()
+        if self.descriptions and doc_first_line:
+            desc = escape(doc_first_line)
+            if dim_all:
+                parts += f" [dim]-- {desc}[/dim]"
+            else:
+                parts += f" [dim italic]-- {desc}[/dim italic]"
+
+        return parts
 
     def _start_spinner(self, test_name: str) -> None:
         """Start the live spinner display (called from timer thread)."""
@@ -149,60 +183,60 @@ class PrismTestResult(unittest.TextTestResult):
         # Skip the TextTestResult output; we handle it ourselves
         unittest.TestResult.addSuccess(self, test)
         elapsed = time.time() - self._test_start_time
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test)
             self.console.print(
-                f"[pass]✔[/pass] {escape(test_name)} [timing]({elapsed:.3f}s)[/timing]"
+                f"[pass]✔[/pass] {formatted} [timing]({elapsed:.3f}s)[/timing]"
             )
         elif self.dots:
             self.console.print("[pass].[/pass]", end="")
 
     def addError(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addError(self, test, err)
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test)
             self.console.print(
-                f"[error]✘[/error] {escape(test_name)}  [error]ERROR[/error]"
+                f"[error]✘[/error] {formatted}  [error]ERROR[/error]"
             )
         elif self.dots:
             self.console.print("[error]E[/error]", end="")
 
     def addFailure(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addFailure(self, test, err)
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test)
             self.console.print(
-                f"[fail]✘[/fail] {escape(test_name)}  [fail]FAIL[/fail]"
+                f"[fail]✘[/fail] {formatted}  [fail]FAIL[/fail]"
             )
         elif self.dots:
             self.console.print("[fail]F[/fail]", end="")
 
     def addSkip(self, test: unittest.TestCase, reason: str) -> None:
         unittest.TestResult.addSkip(self, test, reason)
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test, dim_all=True)
             self.console.print(
-                f"[skip]⊘[/skip] {escape(test_name)}  [skip]SKIP: {escape(reason)}[/skip]"
+                f"[dim]⊘[/dim] {formatted}  [dim]SKIP: {escape(reason)}[/dim]"
             )
         elif self.dots:
-            self.console.print("[skip]s[/skip]", end="")
+            self.console.print("[dim]s[/dim]", end="")
 
     def addExpectedFailure(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addExpectedFailure(self, test, err)
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test)
             self.console.print(
-                f"[expected_fail]✔[/expected_fail] {escape(test_name)}"
+                f"[expected_fail]✔[/expected_fail] {formatted}"
                 " [timing]expected failure[/timing]"
             )
         elif self.dots:
@@ -210,12 +244,12 @@ class PrismTestResult(unittest.TextTestResult):
 
     def addUnexpectedSuccess(self, test: unittest.TestCase) -> None:
         unittest.TestResult.addUnexpectedSuccess(self, test)
-        test_name = self.getDescription(test)
         self._stop_live()
 
         if self.showAll:
+            formatted = self._format_test_name(test)
             self.console.print(
-                f"[unexpected_success]⚠[/unexpected_success] {escape(test_name)}"
+                f"[unexpected_success]⚠[/unexpected_success] {formatted}"
                 " [unexpected_success]unexpected success[/unexpected_success]"
             )
         elif self.dots:
