@@ -1,14 +1,10 @@
 """Quick demo of django-prismtest output formatting."""
 
-import sys
 import time
 
-from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from django_prismtest.formatter import (
-    SPINNER_FRAMES,
     format_traceback,
     make_console,
     render_summary,
@@ -18,16 +14,16 @@ from django_prismtest.formatter import (
 
 def demo_spinner() -> None:
     """Show the spinner animation briefly."""
+    from rich.live import Live
+    from rich.spinner import Spinner
+    from rich.text import Text
+
     console = make_console()
     console.print("\n[title]Spinner demo:[/title]")
-    for i in range(20):
-        frame = SPINNER_FRAMES[i % len(SPINNER_FRAMES)]
-        sys.stderr.write(f"\r\033[36m{frame}\033[0m Running test_example...")
-        sys.stderr.flush()
-        time.sleep(0.08)
-    sys.stderr.write("\r\033[K")
-    sys.stderr.write("\033[32m  ✔ \033[0mtest_example\033[2m (0.123s)\033[0m\n")
-    sys.stderr.flush()
+    spinner = Spinner("dots", text=Text("Running test_example...", style="dim"))
+    with Live(spinner, console=console, transient=True, refresh_per_second=12.5):
+        time.sleep(1.5)
+    console.print("  [pass]✔[/pass] test_example [timing](0.123s)[/timing]")
 
 
 def demo_icons() -> None:

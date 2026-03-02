@@ -4,33 +4,7 @@ import io
 import sys
 import unittest
 
-from django_prismtest.result import PrismTestResult, _Spinner
-
-
-class TestSpinner(unittest.TestCase):
-    def test_start_and_stop(self):
-        spinner = _Spinner()
-        spinner.start("testing...")
-        # Let it spin briefly
-        import time
-        time.sleep(0.15)
-        spinner.stop()
-        # Should not raise
-
-    def test_stop_with_message(self):
-        spinner = _Spinner()
-        spinner.start("working...")
-        import time
-        time.sleep(0.1)
-        spinner.stop("done")
-
-    def test_update_text(self):
-        spinner = _Spinner()
-        spinner.start("initial")
-        spinner.update("updated text")
-        import time
-        time.sleep(0.1)
-        spinner.stop()
+from django_prismtest.result import PrismTestResult
 
 
 class TestPrismTestResult(unittest.TestCase):
