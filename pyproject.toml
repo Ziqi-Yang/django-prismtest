@@ -1,9 +1,37 @@
 [project]
 name = "django-prismtest"
 version = "0.1.0"
-description = "Add your description here"
+description = "A modern, colorful Django test runner with real-time spinners, syntax-highlighted output, and beautifully formatted test results."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
+keywords = ["django", "testing", "test-runner", "colorful", "tui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "django>=6.0.2",
+    "rich>=14.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Ziqi-Yang/django-prismtest"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["django_prismtest*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.11",
 ]
