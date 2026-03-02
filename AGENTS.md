@@ -1,45 +1,33 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-This repository is currently a minimal Python project at the root level:
-- `main.py`: current executable entry point.
-- `pyproject.toml`: project metadata and dependencies (`django`).
-- `uv.lock`: locked dependency graph for reproducible installs.
-- `README.md`: short project description.
+## What This Project Is
 
-When adding features, prefer grouping Django code into top-level packages (for example, `project/`, `apps/`, `tests/`) instead of expanding root-level scripts.
+django-prismtest is a drop-in replacement for Django's `DiscoverRunner` that provides colorful test output with real-time Braille-dot spinners, syntax-highlighted tracebacks, and Rich-formatted summary panels. Users configure it via `TEST_RUNNER = "django_prismtest.runner.PrismDiscoverRunner"` in their Django settings.
 
-## Build, Test, and Development Commands
-Use `uv` for environment and dependency management.
-- `uv sync`: create/update `.venv` from `pyproject.toml` and `uv.lock`.
-- `uv run python main.py`: run the current entry script.
-- `uv add <package>`: add a dependency and update lockfile.
-- `uv run python -m django --version`: verify Django is installed in the environment.
+## Commands
 
-If a Django project scaffold is added later, document and standardize `manage.py` commands here.
+```bash
+uv sync --group dev       # Install all deps including dev tools (pytest, ruff, pytest-cov)
+uv run python -m pytest tests/              # Run full test suite
+uv run python -m pytest tests/test_formatter.py  # Run a single test file
+uv run python -m pytest tests/test_formatter.py::test_status_icon_pass -v  # Run a single test
+uv run python main.py     # Run the visual demo of output formatting
+```
 
-## Coding Style & Naming Conventions
-- Follow PEP 8 with 4-space indentation.
-- Use `snake_case` for functions/modules, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants.
-- Keep functions focused and side effects explicit.
-- Add type hints to new public functions.
+## Architecture
 
-No formatter/linter is configured yet in `pyproject.toml`; if one is introduced (for example, Ruff), apply it consistently across the repo.
+The package lives in `django_prismtest/` with three modules in a clear pipeline:
 
-## Testing Guidelines
-A formal test suite is not present yet. Add tests with new behavior changes.
-- Place tests under `tests/`.
-- Name files `test_<feature>.py` and test functions `test_<behavior>()`.
-- Run tests with `uv run python -m unittest discover -s tests` until a dedicated framework is configured.
+- **`runner.py`** — `PrismDiscoverRunner` (subclasses Django's `DiscoverRunner`) and `PrismTestRunner` (subclasses `unittest.TextTestRunner`). Entry point for Django integration. Delegates to `PrismTestResult` as the result class.
+- **`result.py`** — `PrismTestResult` (subclasses `unittest.TextTestResult`). Owns the test lifecycle: starts/stops a background `_Spinner` thread per test, records per-test timings, and calls formatter functions on `stopTestRun`. Bypasses `TextTestResult`'s default output by calling `unittest.TestResult` methods directly.
+- **`formatter.py`** — Pure rendering functions (`format_traceback`, `render_summary`, `render_error_list`, `status_icon`) and constants (`PRISM_THEME`, `SPINNER_FRAMES`). Uses Rich for all styled output. No test-runner state—takes data in, returns/prints Rich objects.
 
-For future Django apps, prefer framework-native test modules and isolate DB-dependent tests.
+`main.py` is a standalone demo script (not part of the package) that exercises the formatter visually.
 
-## Commit & Pull Request Guidelines
-Git history currently contains a single initial commit (`init`), so conventions are not yet established.
-Use concise, imperative commit subjects (examples: `add prism output formatter`, `wire django test command`).
+## Testing
 
-For pull requests:
-- Summarize what changed and why.
-- Link related issues/tasks.
-- Include test evidence (command + result).
-- Attach terminal screenshots/log snippets when output formatting changes.
+Tests use **pytest** (not unittest discover). Django settings are configured in `tests/conftest.py` via `pytest_configure()` using an in-memory SQLite database—no `manage.py` or Django project scaffold exists.
+
+## Style
+
+PEP 8, 4-space indent, type hints on public functions. Ruff is in dev dependencies but no config is set in `pyproject.toml` yet.
