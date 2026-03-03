@@ -56,3 +56,60 @@ class TestPrismTestResult(unittest.TestCase):
         result = self._make_result()
         # Should not raise
         result.printErrors()
+
+    def test_running_tests_populated_on_start(self):
+        """_running_tests should be populated when startTest is called."""
+        result = self._make_result()
+
+        class FakeTest(unittest.TestCase):
+            def runTest(self):
+                pass
+            def shortDescription(self):
+                return None
+            def __str__(self):
+                return "test_example (tests.test_foo.FooTest)"
+
+        test = FakeTest()
+        # Don't start live display for this unit test
+        result.showAll = False
+        result.startTest(test)
+        # showAll was False so _running_tests should not be populated
+        assert len(result._running_tests) == 0
+
+    def test_running_tests_populated_when_show_all(self):
+        """_running_tests should be populated in verbose mode."""
+        result = self._make_result(verbosity=2)
+
+        class FakeTest(unittest.TestCase):
+            def runTest(self):
+                pass
+            def shortDescription(self):
+                return None
+            def __str__(self):
+                return "test_example (tests.test_foo.FooTest)"
+
+        test = FakeTest()
+        # Manually set showAll without starting Live
+        result._live = None
+        result.startTest(test)
+        assert str(test) in result._running_tests
+
+    def test_running_tests_cleared_on_success(self):
+        """_running_tests should be cleared when a test succeeds."""
+        result = self._make_result(verbosity=2)
+
+        class FakeTest(unittest.TestCase):
+            def runTest(self):
+                pass
+            def shortDescription(self):
+                return None
+            def __str__(self):
+                return "test_example (tests.test_foo.FooTest)"
+
+        test = FakeTest()
+        result._live = None
+        result.startTest(test)
+        assert str(test) in result._running_tests
+        result.addSuccess(test)
+        assert str(test) not in result._running_tests
+        assert len(result._test_outcomes) == 1

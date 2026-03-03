@@ -8,6 +8,7 @@ from django_prismtest.formatter import (
     format_traceback,
     make_console,
     render_summary,
+    render_tree,
     status_icon,
 )
 
@@ -52,6 +53,23 @@ def demo_traceback() -> None:
     console.print(panel)
 
 
+def demo_tree() -> None:
+    """Show the tree-structured test output."""
+    console = make_console()
+    console.print("\n[title]Tree output:[/title]")
+    outcomes = [
+        (["tests", "test_views"], "ViewTest", "test_index", "pass", 0.012, ""),
+        (["tests", "test_views"], "ViewTest", "test_detail", "pass", 0.034, ""),
+        (["tests", "test_views"], "ViewTest", "test_missing", "fail", 0.008, ""),
+        (["tests", "test_auth"], "AuthTest", "test_login", "pass", 0.321, ""),
+        (["tests", "test_auth"], "AuthTest", "test_logout", "pass", 0.015, ""),
+        (["tests", "test_auth"], "AuthTest", "test_permissions", "skip", 0.0, "SKIP: not implemented"),
+        (["tests", "test_db"], "DBTest", "test_heavy_query", "error", 1.234, ""),
+        (["tests", "test_db"], "DBTest", "test_migration", "expected_failure", 0.456, "expected failure"),
+    ]
+    render_tree(outcomes, console=console)
+
+
 def demo_summary() -> None:
     """Show a mock summary panel."""
     from unittest.mock import MagicMock
@@ -87,6 +105,7 @@ def main() -> None:
 
     demo_icons()
     demo_spinner()
+    demo_tree()
     demo_traceback()
     demo_summary()
 

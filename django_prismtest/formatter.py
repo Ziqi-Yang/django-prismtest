@@ -11,13 +11,16 @@ import textwrap
 import time
 from typing import TYPE_CHECKING
 
-from rich.console import Console
+from collections import OrderedDict
+
+from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
+from rich.tree import Tree
 
 if TYPE_CHECKING:
     from unittest import TestResult
@@ -69,6 +72,232 @@ def status_icon(outcome: str) -> str:
         "unexpected_success": "[unexpected_success]⚠[/unexpected_success]",
     }
     return icons.get(outcome, " ")
+
+
+# ---------------------------------------------------------------------------
+# Tree-structured output
+# ---------------------------------------------------------------------------
+
+
+def _method_label(
+    method_name: str,
+    outcome: str,
+    elapsed: float,
+    reason: str,
+    spinner_char: str | None = None,
+) -> str:
+    """Build a Rich-markup leaf label for a single test method."""
+    if outcome == "_running" and spinner_char:
+        return f"[bold cyan]{spinner_char}[/bold cyan] {method_name}"
+    icon = status_icon(outcome)
+    label = f"{icon} {method_name} [timing]({elapsed:.3f}s)[/timing]"
+    if reason:
+        label += f"  [dim]{escape(reason)}[/dim]"
+    return label
+
+
+_TrieNode = dict  # {"children": OrderedDict[str, _TrieNode], "methods": list}
+
+
+def _new_trie_node() -> _TrieNode:
+    return {"children": OrderedDict(), "methods": []}
+
+
+def _collapse_trie(node: _TrieNode) -> None:
+    """Merge single-child chains so ``a → b → c`` becomes ``a.b.c``."""
+    for child in node["children"].values():
+        _collapse_trie(child)
+
+    collapsed: OrderedDict[str, _TrieNode] = OrderedDict()
+    for name, child in node["children"].items():
+        cname = name
+        while len(child["children"]) == 1 and not child["methods"]:
+            sub_name, grandchild = next(iter(child["children"].items()))
+            cname = f"{cname}.{sub_name}"
+            child = grandchild
+        collapsed[cname] = child
+    node["children"] = collapsed
+
+
+def _format_node_label(name: str, is_leaf_class: bool) -> str:
+    """Style a trie node label based on its role in the hierarchy.
+
+    Module-path segments are dimmed, class names are bold + cyan.
+    """
+    if "." not in name:
+        # Single segment: either a package part or a class name
+        if is_leaf_class:
+            return f"[bold cyan]{name}[/bold cyan]"
+        return f"[dim]{name}[/dim]"
+
+    # Collapsed dotted path — dim everything except the last segment,
+    # which is the class name for leaf nodes.
+    parts = name.rsplit(".", 1)
+    prefix, last = parts[0], parts[1]
+    if is_leaf_class:
+        return f"[dim]{prefix}.[/dim][bold cyan]{last}[/bold cyan]"
+    return f"[dim]{name}[/dim]"
+
+
+def _render_trie(
+    node: _TrieNode, tree: Tree, spinner_char: str | None = None,
+) -> None:
+    """Recursively render a trie into a ``rich.tree.Tree``."""
+    for name, child in node["children"].items():
+        # Leaf class node (has methods, no sub-children)
+        if not child["children"] and child["methods"]:
+            if len(child["methods"]) == 1:
+                # Single method — show class and method on one line
+                method_name, outcome, elapsed, reason = child["methods"][0]
+                # Avoid duplicating the method name when _collapse_trie
+                # has already merged the class node with its only child.
+                if name == method_name or name.endswith(f".{method_name}"):
+                    label = _format_node_label(name, is_leaf_class=True)
+                else:
+                    styled_name = _format_node_label(name, is_leaf_class=True)
+                    label = f"{styled_name} › {method_name}"
+                tree.add(_method_label(
+                    label, outcome, elapsed, reason,
+                    spinner_char=spinner_char,
+                ))
+            else:
+                branch = tree.add(_format_node_label(name, is_leaf_class=True))
+                for method_name, outcome, elapsed, reason in child["methods"]:
+                    branch.add(_method_label(
+                        method_name, outcome, elapsed, reason,
+                        spinner_char=spinner_char,
+                    ))
+        else:
+            # Intermediate node (may also carry methods in unusual layouts)
+            branch = tree.add(_format_node_label(name, is_leaf_class=False))
+            for method_name, outcome, elapsed, reason in child["methods"]:
+                branch.add(_method_label(
+                    method_name, outcome, elapsed, reason,
+                    spinner_char=spinner_char,
+                ))
+            _render_trie(child, branch, spinner_char=spinner_char)
+
+
+def _build_trie(
+    outcomes: list[tuple[list[str], str, str, str, float, str]],
+    running: list[tuple[list[str], str, str]] | None = None,
+) -> _TrieNode:
+    """Build a collapsed trie from completed outcomes and optionally running tests.
+
+    *running* entries are ``(module_parts, class_name, method_name)`` and are
+    inserted with outcome ``"_running"`` (elapsed=0, reason="").
+    """
+    trie = _new_trie_node()
+    for module_parts, class_name, method_name, outcome, elapsed, reason in outcomes:
+        node = trie
+        for part in module_parts:
+            if part not in node["children"]:
+                node["children"][part] = _new_trie_node()
+            node = node["children"][part]
+        if class_name not in node["children"]:
+            node["children"][class_name] = _new_trie_node()
+        node["children"][class_name]["methods"].append(
+            (method_name, outcome, elapsed, reason)
+        )
+
+    if running:
+        for module_parts, class_name, method_name in running:
+            node = trie
+            for part in module_parts:
+                if part not in node["children"]:
+                    node["children"][part] = _new_trie_node()
+                node = node["children"][part]
+            if class_name not in node["children"]:
+                node["children"][class_name] = _new_trie_node()
+            node["children"][class_name]["methods"].append(
+                (method_name, "_running", 0.0, "")
+            )
+
+    _collapse_trie(trie)
+    return trie
+
+
+def render_tree(
+    outcomes: list[tuple[list[str], str, str, str, float, str]],
+    console: Console | None = None,
+) -> None:
+    """Render test outcomes as a module > class > method tree.
+
+    Each *outcome* tuple contains:
+    ``(module_parts, class_name, method_name, outcome, elapsed, reason)``.
+
+    Single-child chains are collapsed (e.g. ``apps → api → tests`` becomes
+    ``apps.api.tests``) and classes with only one test method are rendered as
+    a single leaf line.
+    """
+    if console is None:
+        console = make_console()
+
+    trie = _build_trie(outcomes)
+    root = Tree("[title]Test Results[/title]", guide_style="dim")
+    _render_trie(trie, root)
+    console.print(root)
+
+
+def build_live_tree(
+    running: list[tuple[list[str], str, str]],
+    spinner_char: str,
+) -> Tree:
+    """Build a Rich Tree for the live display (does NOT print).
+
+    Only shows currently *running* tests with a spinning Braille-dot
+    indicator.  Completed tests are not included — they appear in the
+    final static tree printed after ``stopTestRun()``.
+    """
+    trie = _build_trie([], running)
+    root = Tree("[title]Test Results[/title]", guide_style="dim")
+    _render_trie(trie, root, spinner_char=spinner_char)
+    return root
+
+
+def build_status_line(
+    total: int,
+    completed: int,
+    passed: int,
+    failed: int,
+    errors: int,
+    skipped: int,
+    running_count: int,
+    spinner_char: str,
+    elapsed: float,
+) -> Text:
+    """Build a Rich Text status line for the live display.
+
+    Returns something like: ``⠋ 15/42 │ ✔ 12 │ ✘ 2 failed │ ⊘ 1 │ 3 running │ 1.2s``
+    """
+    parts: list[tuple[str, str]] = []
+    parts.append((f"{spinner_char} ", "bold cyan"))
+    parts.append((f"{completed}/{total}", "bold"))
+    parts.append((" │ ", "dim"))
+    parts.append(("✔ ", "bold green"))
+    parts.append((str(passed), "bold green"))
+    if failed:
+        parts.append((" │ ", "dim"))
+        parts.append(("✘ ", "bold red"))
+        parts.append((f"{failed} failed", "bold red"))
+    if errors:
+        parts.append((" │ ", "dim"))
+        parts.append(("✘ ", "bold red"))
+        parts.append((f"{errors} error{'s' if errors != 1 else ''}", "bold red"))
+    if skipped:
+        parts.append((" │ ", "dim"))
+        parts.append(("⊘ ", "bold yellow"))
+        parts.append((str(skipped), "bold yellow"))
+    if running_count:
+        parts.append((" │ ", "dim"))
+        parts.append((f"{running_count} running", "bold cyan"))
+    parts.append((" │ ", "dim"))
+    parts.append((f"{elapsed:.1f}s", "dim"))
+
+    text = Text()
+    for content, style in parts:
+        text.append(content, style=style)
+    return text
 
 
 # ---------------------------------------------------------------------------

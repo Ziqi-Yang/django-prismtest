@@ -19,11 +19,17 @@ class PrismTestRunner(unittest.TextTestRunner):
 
     def __init__(self, **kwargs):
         self._parallel = kwargs.pop("parallel", False)
+        self._total_tests: int = 0
         super().__init__(**kwargs)
+
+    def run(self, test):
+        self._total_tests = test.countTestCases()
+        return super().run(test)
 
     def _makeResult(self):
         result = super()._makeResult()
         result._parallel = self._parallel
+        result._total_tests = self._total_tests
         return result
 
 

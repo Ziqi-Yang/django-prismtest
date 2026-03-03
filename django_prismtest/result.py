@@ -1,4 +1,4 @@
-"""Custom test result class with live spinner and colored output."""
+"""Custom test result class with live tree display and colored output."""
 
 from __future__ import annotations
 
@@ -8,27 +8,71 @@ import threading
 import time
 import unittest
 
+from rich.console import Group
 from rich.live import Live
-from rich.markup import escape
-from rich.spinner import Spinner
 from rich.text import Text
 
 from django_prismtest.formatter import (
+    SPINNER_FRAMES,
+    build_live_tree,
+    build_status_line,
     make_console,
     render_error_list,
     render_summary,
+    render_tree,
 )
 
-# Only show the spinner if a test runs longer than this (seconds).
-# Avoids visual noise for fast tests and parallel-mode event replays.
-_SPINNER_DELAY = 0.15
+
+class _LiveTreeRenderable:
+    """A Rich renderable that rebuilds the live tree on each refresh.
+
+    Rich's ``Live`` calls ``__rich_console__`` (via ``__rich__``) on every
+    refresh cycle.  Each call advances the spinner frame and snapshots the
+    current test state to produce an up-to-date tree with status line.
+    """
+
+    def __init__(self, result: PrismTestResult) -> None:
+        self._result = result
+        self._frame: int = 0
+
+    def __rich__(self) -> Group:
+        r = self._result
+        spinner_char = SPINNER_FRAMES[self._frame % len(SPINNER_FRAMES)]
+        self._frame += 1
+
+        with r._live_lock:
+            outcomes = list(r._test_outcomes)
+            running = list(r._running_tests.values())
+            total = r._total_tests
+            elapsed = time.time() - r._run_start_time
+
+        completed = len(outcomes)
+        passed = sum(1 for *_, o, _, _ in outcomes if o == "pass")
+        failed = sum(1 for *_, o, _, _ in outcomes if o == "fail")
+        errors = sum(1 for *_, o, _, _ in outcomes if o == "error")
+        skipped = sum(1 for *_, o, _, _ in outcomes if o == "skip")
+
+        status = build_status_line(
+            total=total,
+            completed=completed,
+            passed=passed,
+            failed=failed,
+            errors=errors,
+            skipped=skipped,
+            running_count=len(running),
+            spinner_char=spinner_char,
+            elapsed=elapsed,
+        )
+        tree = build_live_tree(running, spinner_char)
+        return Group(status, tree)
 
 
 class PrismTestResult(unittest.TextTestResult):
-    """A test result class that provides rich, colorful output with spinners.
+    """A test result class that provides rich, colorful output with a live tree.
 
     Features:
-    - Real-time Braille-dot spinner while each test runs
+    - Real-time live tree display showing all tests as they run
+    - Braille-dot spinner for in-progress tests
     - Colored pass/fail/error/skip indicators
     - Per-test timing
     - Rich-formatted summary with panels and tables
@@ -40,9 +84,11 @@ class PrismTestResult(unittest.TextTestResult):
         self.console = make_console(file=sys.stderr)
         self._live: Live | None = None
         self._live_lock = threading.Lock()
-        self._spinner_timer: threading.Timer | None = None
+        self._running_tests: dict[str, tuple[list[str], str, str]] = {}
+        self._total_tests: int = 0
         self._test_start_time: float = 0.0
         self.test_timings: list[tuple[str, float]] = []
+        self._test_outcomes: list[tuple[list[str], str, str, str, float, str]] = []
         self._run_start_time: float = 0.0
         self._parallel: bool = False
         self.highlight_path: str | None = None
@@ -58,12 +104,9 @@ class PrismTestResult(unittest.TextTestResult):
             pass
 
     def _format_test_name(self, test: unittest.TestCase, dim_all: bool = False) -> str:
-        """Return Rich-markup formatted test name with differentiated parts.
+        """Return Rich-markup formatted test name with differentiated parts."""
+        from rich.markup import escape
 
-        When *dim_all* is True the entire string is rendered dim (used for
-        skipped tests).  Otherwise the method name, path, and description
-        each receive a distinct style.
-        """
         test_str = str(test)
         match = re.match(r"^(\S+)\s+\((.+)\)$", test_str)
 
@@ -90,30 +133,35 @@ class PrismTestResult(unittest.TextTestResult):
 
         return parts
 
-    def _start_spinner(self, test_name: str) -> None:
-        """Start the live spinner display (called from timer thread)."""
-        with self._live_lock:
-            if self._spinner_timer is None:
-                # Timer was cancelled before we got here
-                return
-            spinner = Spinner("dots", text=Text(test_name, style="dim"))
-            self._live = Live(
-                spinner,
-                console=self.console,
-                transient=True,
-                refresh_per_second=12.5,
-            )
-            self._live.start()
+    @staticmethod
+    def _parse_test_id(test: unittest.TestCase) -> tuple[list[str], str, str]:
+        """Split ``str(test)`` into ``(module_parts, class_name, method_name)``."""
+        test_str = str(test)
+        match = re.match(r"^(\S+)\s+\((.+)\)$", test_str)
+        if match:
+            method = match.group(1)
+            path = match.group(2)
+            # Strip a trailing method name if the path redundantly includes it
+            # e.g. "test_foo (mod.Class.test_foo)" → path should be "mod.Class"
+            if path.endswith(f".{method}"):
+                path = path[: -(len(method) + 1)]
+            parts = path.rsplit(".", 1)
+            if len(parts) == 2:
+                module_path, class_name = parts
+                return module_path.split("."), class_name, method
+            return [path], "", method
+        return [test_str], "", ""
 
     def _stop_live(self) -> None:
-        """Stop the live spinner display if it's running."""
+        """Stop the live tree display if it's running."""
         with self._live_lock:
-            if self._spinner_timer is not None:
-                self._spinner_timer.cancel()
-                self._spinner_timer = None
-            if self._live is not None:
-                self._live.stop()
-                self._live = None
+            live = self._live
+            self._live = None
+        # Call stop() outside the lock — stop() joins the refresh thread,
+        # which needs _live_lock in __rich__().  Holding the lock here
+        # would deadlock.
+        if live is not None:
+            live.stop()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -126,32 +174,39 @@ class PrismTestResult(unittest.TextTestResult):
         self.console.print("[title]Running tests...[/title]")
         self.console.print("[separator]" + "─" * 60 + "[/separator]")
 
+        if self.showAll:
+            renderable = _LiveTreeRenderable(self)
+            self._live = Live(
+                renderable,
+                console=self.console,
+                transient=True,
+                refresh_per_second=12.5,
+            )
+            self._live.start()
+
     def startTest(self, test: unittest.TestCase) -> None:
         # Bypass TextTestResult.startTest() to suppress its default output
-        # (it writes the test name + " ... " to the stream).
         unittest.TestResult.startTest(self, test)
         self._test_start_time = time.time()
-        # Clean up any leftover spinner from a previous test
-        self._stop_live()
-        test_name = self.getDescription(test)
         if self.showAll:
-            timer = threading.Timer(
-                _SPINNER_DELAY, self._start_spinner, args=(test_name,)
-            )
-            timer.daemon = True
-            self._spinner_timer = timer
-            timer.start()
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests[str(test)] = (mod, cls, method)
 
     def stopTest(self, test: unittest.TestCase) -> None:
         elapsed = time.time() - self._test_start_time
         test_name = self.getDescription(test)
         self.test_timings.append((test_name, elapsed))
-        self._stop_live()
         super().stopTest(test)
 
     def stopTestRun(self) -> None:
         super().stopTestRun()
         total_elapsed = time.time() - self._run_start_time
+        # Stop the live display (transient=True auto-clears it)
+        self._stop_live()
+
+        if self.showAll and self._test_outcomes:
+            render_tree(self._test_outcomes, self.console)
         if self.dots:
             self.console.print()
         self.console.print("[separator]" + "─" * 60 + "[/separator]")
@@ -182,74 +237,69 @@ class PrismTestResult(unittest.TextTestResult):
     # ------------------------------------------------------------------
 
     def addSuccess(self, test: unittest.TestCase) -> None:
-        # Skip the TextTestResult output; we handle it ourselves
         unittest.TestResult.addSuccess(self, test)
         elapsed = time.time() - self._test_start_time
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test)
-            self.console.print(
-                f"[pass]✔[/pass] {formatted} [timing]({elapsed:.3f}s)[/timing]"
-            )
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "pass", elapsed, ""))
         elif self.dots:
             self.console.print("[pass].[/pass]", end="")
 
     def addError(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addError(self, test, err)
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test)
-            self.console.print(f"[error]✘[/error] {formatted}  [error]ERROR[/error]")
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "error", 0.0, ""))
         elif self.dots:
             self.console.print("[error]E[/error]", end="")
 
     def addFailure(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addFailure(self, test, err)
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test)
-            self.console.print(f"[fail]✘[/fail] {formatted}  [fail]FAIL[/fail]")
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "fail", 0.0, ""))
         elif self.dots:
             self.console.print("[fail]F[/fail]", end="")
 
     def addSkip(self, test: unittest.TestCase, reason: str) -> None:
         unittest.TestResult.addSkip(self, test, reason)
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test, dim_all=True)
-            self.console.print(
-                f"[dim]⊘[/dim] {formatted}  [dim]SKIP: {escape(reason)}[/dim]"
-            )
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "skip", 0.0, f"SKIP: {reason}"))
         elif self.dots:
             self.console.print("[dim]s[/dim]", end="")
 
     def addExpectedFailure(self, test: unittest.TestCase, err) -> None:
         unittest.TestResult.addExpectedFailure(self, test, err)
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test)
-            self.console.print(
-                f"[expected_fail]✔[/expected_fail] {formatted}"
-                " [timing]expected failure[/timing]"
-            )
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "expected_failure", 0.0, "expected failure"))
         elif self.dots:
             self.console.print("[expected_fail]x[/expected_fail]", end="")
 
     def addUnexpectedSuccess(self, test: unittest.TestCase) -> None:
         unittest.TestResult.addUnexpectedSuccess(self, test)
-        self._stop_live()
 
         if self.showAll:
-            formatted = self._format_test_name(test)
-            self.console.print(
-                f"[unexpected_success]⚠[/unexpected_success] {formatted}"
-                " [unexpected_success]unexpected success[/unexpected_success]"
-            )
+            mod, cls, method = self._parse_test_id(test)
+            with self._live_lock:
+                self._running_tests.pop(str(test), None)
+                self._test_outcomes.append((mod, cls, method, "unexpected_success", 0.0, "unexpected success"))
         elif self.dots:
             self.console.print("[unexpected_success]u[/unexpected_success]", end="")
 
@@ -258,7 +308,6 @@ class PrismTestResult(unittest.TextTestResult):
     # ------------------------------------------------------------------
 
     def printErrors(self) -> None:
-        # Handled in stopTestRun via render_error_list / render_summary
         pass
 
     def getDescription(self, test: unittest.TestCase) -> str:
