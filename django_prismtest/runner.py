@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
 
+from django.db.backends.base.creation import BaseDatabaseCreation
 from django.test.runner import DiscoverRunner
 
+from django_prismtest.formatter import make_console
 from django_prismtest.result import PrismTestResult
 
 
@@ -52,3 +55,57 @@ class PrismDiscoverRunner(DiscoverRunner):
         kwargs["resultclass"] = self.get_resultclass()
         kwargs["parallel"] = getattr(self, "parallel", 0) > 1
         return kwargs
+
+    def setup_databases(self, **kwargs):
+        if self.parallel <= 1:
+            return super().setup_databases(**kwargs)
+
+        console = make_console(file=sys.stderr)
+        messages: list[str] = []
+        original_log = BaseDatabaseCreation.log
+
+        def _quiet_log(self_creation, msg):
+            messages.append(msg)
+
+        BaseDatabaseCreation.log = _quiet_log
+        try:
+            with console.status("[bold cyan]Setting up test databases…"):
+                result = super().setup_databases(**kwargs)
+        finally:
+            BaseDatabaseCreation.log = original_log
+
+        clone_count = sum(
+            1 for m in messages if "Cloning" in m or "existing clone" in m
+        )
+        if clone_count:
+            console.print(
+                f"[pass]✔[/pass] Cloned [bold]{clone_count}[/bold] test databases"
+            )
+
+        return result
+
+    def teardown_databases(self, old_config, **kwargs):
+        if self.parallel <= 1:
+            return super().teardown_databases(old_config, **kwargs)
+
+        console = make_console(file=sys.stderr)
+        messages: list[str] = []
+        original_log = BaseDatabaseCreation.log
+
+        def _quiet_log(self_creation, msg):
+            messages.append(msg)
+
+        BaseDatabaseCreation.log = _quiet_log
+        try:
+            with console.status("[bold cyan]Destroying test databases…"):
+                super().teardown_databases(old_config, **kwargs)
+        finally:
+            BaseDatabaseCreation.log = original_log
+
+        destroy_count = sum(
+            1 for m in messages if "Destroying" in m or "Preserving" in m
+        )
+        if destroy_count:
+            console.print(
+                f"[pass]✔[/pass] Destroyed [bold]{destroy_count}[/bold] test databases"
+            )
