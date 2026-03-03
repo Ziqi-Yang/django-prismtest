@@ -14,6 +14,15 @@ class PrismTestRunner(unittest.TextTestRunner):
 
     resultclass = PrismTestResult
 
+    def __init__(self, **kwargs):
+        self._parallel = kwargs.pop("parallel", False)
+        super().__init__(**kwargs)
+
+    def _makeResult(self):
+        result = super()._makeResult()
+        result._parallel = self._parallel
+        return result
+
 
 class PrismDiscoverRunner(DiscoverRunner):
     """Drop-in replacement for Django's DiscoverRunner with prism output.
@@ -41,4 +50,5 @@ class PrismDiscoverRunner(DiscoverRunner):
     def get_test_runner_kwargs(self):
         kwargs = super().get_test_runner_kwargs()
         kwargs["resultclass"] = self.get_resultclass()
+        kwargs["parallel"] = getattr(self, "parallel", 0) > 1
         return kwargs

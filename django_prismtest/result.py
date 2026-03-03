@@ -44,6 +44,7 @@ class PrismTestResult(unittest.TextTestResult):
         self._test_start_time: float = 0.0
         self.test_timings: list[tuple[str, float]] = []
         self._run_start_time: float = 0.0
+        self._parallel: bool = False
         self.highlight_path: str | None = None
         self._configure_highlight_path()
 
@@ -173,7 +174,8 @@ class PrismTestResult(unittest.TextTestResult):
                 console=self.console,
             )
 
-        render_summary(self, total_elapsed, self.test_timings, self.console)
+        timings = [] if self._parallel else self.test_timings
+        render_summary(self, total_elapsed, timings, self.console)
 
     # ------------------------------------------------------------------
     # Result handlers
