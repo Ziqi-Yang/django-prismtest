@@ -2,6 +2,9 @@
 
 A modern, colorful Django test runner with real-time spinners, syntax-highlighted output, and beautifully formatted test results.
 
+Screenshot (Can be outdated; But the newer versions should come with better UI):
+![screenshot](./assets/screenshot.webp)
+
 ## Features
 
 - Real-time Braille-dot spinner while each test runs
